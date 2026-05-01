@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>SafeCalc — Triune Fractal Theorem</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0a0a14; font-family: 'Roboto', sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; }
+  .calc { width: 100%; max-width: 400px; background: #12121f; border-radius: 20px; padding: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+  .display { background: #050510; border-radius: 12px; padding: 16px; margin-bottom: 12px; text-align: right; min-height: 70px; }
+  .display .input { color: #888; font-size: 16px; word-break: break-all; }
+  .display .result { color: #fff; font-size: 32px; font-weight: bold; margin-top: 4px; }
+  .buttons { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  button { background: #1a1a2e; border: none; border-radius: 12px; color: #fff; font-size: 20px; padding: 16px 0; cursor: pointer; transition: 0.2s; }
+  button:active { background: #2a2a4e; transform: scale(0.95); }
+  button.orange { background: #6b3a10; }
+  button.green { background: #1a4a1a; }
+  button.red { background: #4a1a1a; }
+  button.phi { background: #3a2a4a; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 8px; }
+  .tab { flex: 1; padding: 8px; font-size: 12px; background: #1a1a2e; border-radius: 8px; text-align: center; color: #aaa; cursor: pointer; }
+  .tab.active { background: #2a2a4e; color: #fff; }
+  .hidden { display: none; }
+  .row { display: flex; gap: 8px; margin-bottom: 8px; }
+  .row input, .row select { flex: 1; padding: 10px; border-radius: 8px; border: none; background: #1a1a2e; color: #fff; font-size: 14px; }
+  .row button { padding: 10px 16px; font-size: 14px; }
+</style>
+
+  <link rel="manifest" href="data:application/json,{
+    "name": "SafeCalc",
+    "short_name": "SafeCalc",
+    "start_url": "/calculator.html",
+    "display": "standalone",
+    "background_color": "#0a0a14",
+    "theme_color": "#12121f"
+  }">
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register("data:application/javascript," + encodeURIComponent(
+        "self.addEventListener('install', e => self.skipWaiting());" +
+        "self.addEventListener('activate', e => clients.claim());" +
+        "self.addEventListener('fetch', e => e.respondWith(fetch(e.request)));"
+      ));
+    }
+  </script>
+</head>
+<body>
+<div class="calc">
+  <div class="display">
+    <div class="input" id="input">0</div>
+    <div class="result" id="result">0</div>
+  </div>
+  
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('calc')">Calc</div>
+    <div class="tab" onclick="switchTab('sci')">Sci</div>
+    <div class="tab" onclick="switchTab('tools')">Tools</div>
+  </div>
+
+  <div id="tab-calc">
+    <div class="buttons">
+      <button onclick="append('7')">7</button><button onclick="append('8')">8</button><button onclick="append('9')">9</button><button class="orange" onclick="append('÷')">÷</button>
+      <button onclick="append('4')">4</button><button onclick="append('5')">5</button><button onclick="append('6')">6</button><button class="orange" onclick="append('×')">×</button>
+      <button onclick="append('1')">1</button><button onclick="append('2')">2</button><button onclick="append('3')">3</button><button class="orange" onclick="append('-')">−</button>
+      <button onclick="append('0')">0</button><button onclick="append('.')">.</button><button class="green" onclick="calculate()">=</button><button class="orange" onclick="append('+')">+</button>
+      <button class="red" onclick="clearAll()">C</button><button onclick="append('(')">(</button><button onclick="append(')')">)</button><button class="phi" onclick="append('1.618')">φ</button>
+    </div>
+    <div class="buttons" style="grid-template-columns: repeat(4,1fr); margin-top:8px;">
+      <button onclick="memory('M+')">M+</button><button onclick="memory('MR')">MR</button><button onclick="memory('MC')">MC</button><button onclick="undo()">⌫</button>
+    </div>
+  </div>
+
+  <div id="tab-sci" class="hidden">
+    <div class="buttons">
+      <button onclick="append('sin(')">sin</button><button onclick="append('cos(')">cos</button><button onclick="append('tan(')">tan</button><button onclick="append('log(')">log</button>
+      <button onclick="append('sqrt(')">√</button><button onclick="append('exp(')">exp</button><button onclick="append('**')">x^y</button><button onclick="append('pi')">π</button>
+      <button onclick="append('%')">%</button><button onclick="append('fact(')">fact</button><button onclick="append('rad(')">rad</button><button onclick="append('deg(')">deg</button>
+    </div>
+  </div>
+
+  <div id="tab-tools" class="hidden">
+    <div class="row"><input type="number" id="tax-amount" placeholder="Amount"><input type="number" id="tax-rate" placeholder="Rate %"><button class="orange" onclick="calcTax()">Tax</button></div>
+    <div class="row"><input type="number" id="tip-amount" placeholder="Bill"><input type="number" id="tip-rate" placeholder="Tip %"><button class="orange" onclick="calcTip()">Tip</button></div>
+    <div class="row"><input type="number" id="len-val" placeholder="Value"><select id="len-from"><option>mi</option><option>km</option><option>ft</option><option>m</option></select><select id="len-to"><option>km</option><option>mi</option><option>m</option><option>ft</option></select><button class="orange" onclick="convertLength()">→</button></div>
+    <div class="row"><input type="number" id="temp-val" placeholder="Temp"><select id="temp-from"><option>F</option><option>C</option><option>K</option></select><select id="temp-to"><option>C</option><option>F</option><option>K</option></select><button class="orange" onclick="convertTemp()">→</button></div>
+    <div class="row"><input type="number" id="comp-principal" placeholder="Principal"><input type="number" id="comp-rate" placeholder="Rate %"><input type="number" id="comp-years" placeholder="Years"><button class="orange" onclick="compound()">FV</button></div>
+  </div>
+</div>
+
+<script>
+  const EPS = 2.220446049250313e-16;
+  let input = '0';
+  let memoryVal = 0;
+  let lastResult = '0';
+
+  function updateDisplay() {
+    document.getElementById('input').textContent = input || '0';
+    document.getElementById('result').textContent = lastResult;
+  }
+
+  function append(s) {
+    if (input === '0' && s !== '.') input = '';
+    input += s;
+    updateDisplay();
+  }
+
+  function clearAll() { input = '0'; lastResult = '0'; updateDisplay(); }
+  function undo() { input = input.slice(0, -1); if (!input) input = '0'; updateDisplay(); }
+
+  function safeEval(expr) {
+    expr = expr.replace(/×/g, '*').replace(/÷/g, '/').replace(/−/g, '-');
+    expr = expr.replace(/pi/g, Math.PI);
+    expr = expr.replace(/fact\(([^)]+)\)/g, (_, n) => factorial(+n));
+    expr = expr.replace(/rad\(([^)]+)\)/g, (_, n) => +n * Math.PI / 180);
+    expr = expr.replace(/deg\(([^)]+)\)/g, (_, n) => +n * 180 / Math.PI);
+    try {
+      let result = eval(expr);
+      if (typeof result === 'number') {
+        if (Math.abs(result) < EPS * 100) result = 0;
+        let s = result.toPrecision(15);
+        if (s.includes('.')) s = s.replace(/\.?0+$/, '');
+        return s;
+      }
+      return String(result);
+    } catch(e) { return 'Error'; }
+  }
+
+  function factorial(n) {
+    if (n < 0) return NaN;
+    let r = 1;
+    for (let i = 2; i <= n; i++) r *= i;
+    return r;
+  }
+
+  function calculate() {
+    if (!input) return;
+    let openCount = (input.match(/\(/g) || []).length;
+    let closeCount = (input.match(/\)/g) || []).length;
+    let expr = input + ')'.repeat(openCount - closeCount);
+    let result = safeEval(expr);
+    lastResult = result;
+    input = result;
+    updateDisplay();
+  }
+
+  function memory(action) {
+    let val = parseFloat(safeEval(input || '0'));
+    if (isNaN(val)) val = 0;
+    if (action === 'M+') memoryVal += val;
+    else if (action === 'MR') { input = String(memoryVal); lastResult = input; }
+    else if (action === 'MC') memoryVal = 0;
+    updateDisplay();
+  }
+
+  function switchTab(tab) {
+    ['calc','sci','tools'].forEach(t => {
+      document.getElementById('tab-'+t).classList.add('hidden');
+    });
+    document.getElementById('tab-'+tab).classList.remove('hidden');
+    document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+    event.target.classList.add('active');
+  }
+
+  function calcTax() {
+    let a = +document.getElementById('tax-amount').value;
+    let r = +document.getElementById('tax-rate').value || 8.5;
+    let total = a * (1 + r/100);
+    lastResult = total.toFixed(2);
+    input = String(lastResult);
+    updateDisplay();
+  }
+
+  function calcTip() {
+    let a = +document.getElementById('tip-amount').value;
+    let r = +document.getElementById('tip-rate').value || 18;
+    let total = a * (1 + r/100);
+    lastResult = total.toFixed(2);
+    input = String(lastResult);
+    updateDisplay();
+  }
+
+  function convertLength() {
+    let v = +document.getElementById('len-val').value;
+    let from = document.getElementById('len-from').value;
+    let to = document.getElementById('len-to').value;
+    const toM = { mi: 1609.344, km: 1000, ft: 0.3048, m: 1 };
+    const fromM = { mi: 1/1609.344, km: 1/1000, ft: 1/0.3048, m: 1 };
+    let meters = v * toM[from];
+    let result = meters * fromM[to];
+    lastResult = result.toFixed(4);
+    input = String(lastResult);
+    updateDisplay();
+  }
+
+  function convertTemp() {
+    let v = +document.getElementById('temp-val').value;
+    let from = document.getElementById('temp-from').value;
+    let to = document.getElementById('temp-to').value;
+    let celsius;
+    if (from === 'C') celsius = v;
+    else if (from === 'F') celsius = (v - 32) * 5/9;
+    else celsius = v - 273.15;
+    let result;
+    if (to === 'C') result = celsius;
+    else if (to === 'F') result = celsius * 9/5 + 32;
+    else result = celsius + 273.15;
+    lastResult = result.toFixed(2);
+    input = String(lastResult);
+    updateDisplay();
+  }
+
+  function compound() {
+    let P = +document.getElementById('comp-principal').value;
+    let r = (+document.getElementById('comp-rate').value || 5) / 100;
+    let t = +document.getElementById('comp-years').value || 1;
+    let A = P * Math.pow(1 + r, t);
+    lastResult = A.toFixed(2);
+    input = String(lastResult);
+    updateDisplay();
+  }
+
+  updateDisplay();
+</script>
+</body>
+</html>
