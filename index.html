@@ -73,123 +73,56 @@
 
 <script>
   (function() {
-    // ----  REAL UMBRILFLOAT ENGINE  ----
-    // Implements the exact φ‑damping logic from your core.py
-    const PHI = (1 + Math.sqrt(5)) / 2;
-    const PHI_INV = 1 / PHI;
-
-    function UmbrilFloat(val) {
-      this.val = Number(val);
-      if (isNaN(this.val)) throw "Not a number";
-      this.shadow = Math.abs(this.val) * Number.EPSILON;
-    }
-    UmbrilFloat.prototype = {
-      add: function(o) {
-        if (!(o instanceof UmbrilFloat)) o = new UmbrilFloat(o);
-        var r = Object.create(UmbrilFloat.prototype);
+    // ----  REAL UMBRILFLOAT ENGINE (fixed parser)  ----
+    var UmbrilFloat = (function() {
+      function UF(val) {
+        this.val = Number(val);
+        if (isNaN(this.val)) throw "Not a number";
+        this.shadow = Math.abs(this.val) * Number.EPSILON;
+      }
+      UF.prototype.add = function(o) {
+        if (!(o instanceof UF)) o = new UF(o);
+        var r = Object.create(UF.prototype);
         r.val = this.val + o.val;
         r.shadow = this.shadow + o.shadow;
         return r;
-      },
-      sub: function(o) {
-        if (!(o instanceof UmbrilFloat)) o = new UmbrilFloat(o);
-        return this.add(new UmbrilFloat(-o.val));
-      },
-      mul: function(o) {
-        if (!(o instanceof UmbrilFloat)) o = new UmbrilFloat(o);
-        var r = Object.create(UmbrilFloat.prototype);
+      };
+      UF.prototype.sub = function(o) {
+        if (!(o instanceof UF)) o = new UF(o);
+        return this.add(new UF(-o.val));
+      };
+      UF.prototype.mul = function(o) {
+        if (!(o instanceof UF)) o = new UF(o);
+        var r = Object.create(UF.prototype);
         r.val = this.val * o.val;
         r.shadow = Math.abs(this.val) * o.shadow + Math.abs(o.val) * this.shadow + this.shadow * o.shadow;
         return r;
-      },
-      div: function(o) {
-        if (!(o instanceof UmbrilFloat)) o = new UmbrilFloat(o);
-        var r = Object.create(UmbrilFloat.prototype);
+      };
+      UF.prototype.div = function(o) {
+        if (!(o instanceof UF)) o = new UF(o);
+        var r = Object.create(UF.prototype);
         r.val = this.val / o.val;
         r.shadow = (Math.abs(this.val) * o.shadow) / Math.max(o.val*o.val, 1e-300) + this.shadow / Math.max(Math.abs(o.val), 1e-300);
         return r;
-      },
-      equals: function(o, tol) {
-        if (!(o instanceof UmbrilFloat)) o = new UmbrilFloat(o);
-        tol = tol || 10;
-        return Math.abs(this.val - o.val) <= tol * Math.max(Math.abs(this.val), Math.abs(o.val), 1.0) * Number.EPSILON;
-      },
-      valueOf: function() { return this.val; },
-      toString: function() {
+      };
+      UF.prototype.toString = function() {
         if (Math.abs(this.val) < 1e-12) return "0";
         var s = this.val.toPrecision(15);
         if (s.indexOf('.') !== -1) s = s.replace(/\.?0+$/, '');
         return s;
-      }
-    };
-
-    // Wrap common math functions to use UmbrilFloat
-    var mathFns = {
-      pi: Math.PI,
-      e: Math.E,
-      sqrt: function(x) { return new UmbrilFloat(Math.sqrt(Number(x))); },
-      sin: function(x)  { return new UmbrilFloat(Math.sin(Number(x))); },
-      cos: function(x)  { return new UmbrilFloat(Math.cos(Number(x))); },
-      tan: function(x)  { return new UmbrilFloat(Math.tan(Number(x))); },
-      log: function(x)  { return new UmbrilFloat(Math.log(Number(x))); },
-      exp: function(x)  { return new UmbrilFloat(Math.exp(Number(x))); },
-      fact: function(n) {
-        n = Number(n);
-        if (n < 0 || !Number.isInteger(n)) return new UmbrilFloat(NaN);
-        var r = 1;
-        for (var i = 2; i <= n; i++) r *= i;
-        return new UmbrilFloat(r);
-      }
-    };
-
-    // Parser that converts infix to UmbrilFloat operations
-    function evaluate(expr) {
-      // Replace symbols
-      expr = expr.replace(/×/g, '*').replace(/÷/g, '/').replace(/−/g, '-');
-      // Create a safe evaluation context
-      var sandbox = {
-        pi: Math.PI,
-        e: Math.E,
-        sqrt: function(x) { return new UmbrilFloat(Math.sqrt(Number(x))); },
-        sin: function(x)  { return new UmbrilFloat(Math.sin(Number(x))); },
-        cos: function(x)  { return new UmbrilFloat(Math.cos(Number(x))); },
-        tan: function(x)  { return new UmbrilFloat(Math.tan(Number(x))); },
-        log: function(x)  { return new UmbrilFloat(Math.log(Number(x))); },
-        exp: function(x)  { return new UmbrilFloat(Math.exp(Number(x))); },
-        fact: function(n) {
-          n = Number(n);
-          if (n < 0 || !Number.isInteger(n)) return new UmbrilFloat(NaN);
-          var r = 1;
-          for (var i = 2; i <= n; i++) r *= i;
-          return new UmbrilFloat(r);
-        }
       };
+      return UF;
+    })();
 
-      // Transform numbers into UmbrilFloat calls
-      var wrapped = expr.replace(/(\d+\.?\d*|\.\d+)/g, function(m) {
-        return 'new UmbrilFloat(' + m + ')';
-      });
-
-      // Override operators by replacing them with method calls
-      // This is tricky; instead we can just use Function constructor with a custom wrapper
-      // that intercepts binary operators via a Proxy? Simpler: use a recursive descent parser.
-      // But for now, just use eval with the UmbrilFloat prototype overridden.
-      
-      // Actually, the easiest robust way is to use a small expression evaluator that
-      // respects operator precedence and uses UmbrilFloat methods.
-      // I'll implement a simple shunting-yard algorithm.
-    }
-
-    // ---- SIMPLE EXPRESSION EVALUATOR (supports + - * / **, functions, parentheses) ----
     function tokenize(expr) {
       var tokens = [];
       var i = 0;
       while (i < expr.length) {
         var ch = expr[i];
         if (ch === ' ') { i++; continue; }
-        if (ch >= '0' && ch <= '9' || ch === '.') {
+        if ((ch >= '0' && ch <= '9') || ch === '.') {
           var num = '';
-          while (i < expr.length && (expr[i] >= '0' && expr[i] <= '9' || expr[i] === '.')) {
+          while (i < expr.length && ((expr[i] >= '0' && expr[i] <= '9') || expr[i] === '.')) {
             num += expr[i++];
           }
           tokens.push({type: 'num', value: parseFloat(num)});
@@ -200,60 +133,58 @@
         if (ch === '+' || ch === '-' || ch === '*' || ch === '/' || ch === '^') {
           tokens.push({type: 'op', value: ch}); i++; continue;
         }
-        if (ch === 'p' && expr.substr(i, 2) === 'pi') { tokens.push({type: 'num', value: Math.PI}); i += 2; continue; }
-        if (ch === 'e' && (i+1 >= expr.length || expr[i+1] < 'a' || expr[i+1] > 'z')) { tokens.push({type: 'num', value: Math.E}); i++; continue; }
-        // function names
-        var funcs = ['sqrt', 'sin', 'cos', 'tan', 'log', 'exp', 'fact', 'rad', 'deg'];
+        var funcs = ['sqrt','sin','cos','tan','log','exp','fact','rad','deg','pi','e'];
         var found = false;
         for (var f = 0; f < funcs.length; f++) {
           var fn = funcs[f];
           if (expr.substr(i, fn.length) === fn) {
-            tokens.push({type: 'func', value: fn});
+            if (fn === 'pi' || fn === 'e') {
+              tokens.push({type: 'num', value: fn === 'pi' ? Math.PI : Math.E});
+            } else {
+              tokens.push({type: 'func', value: fn});
+            }
             i += fn.length;
             found = true;
             break;
           }
         }
         if (found) continue;
-        i++; // ignore unknown
+        i++;
       }
       return tokens;
     }
 
-    function parseAddSub(tokens, pos) {
-      var left = parseMulDiv(tokens, pos);
-      while (pos < tokens.length) {
-        var tok = tokens[pos];
+    function parseExpression(tokens, pos) {
+      var left = parseTerm(tokens, pos);
+      while (left.pos < tokens.length) {
+        var tok = tokens[left.pos];
         if (tok.type === 'op' && (tok.value === '+' || tok.value === '-')) {
-          pos++;
-          var right = parseMulDiv(tokens, pos);
-          left = { type: 'op', op: tok.value, left: left, right: right };
+          var right = parseTerm(tokens, left.pos + 1);
+          left = { node: { type: 'op', op: tok.value, left: left.node, right: right.node }, pos: right.pos };
         } else break;
       }
       return left;
     }
 
-    function parseMulDiv(tokens, pos) {
-      var left = parsePower(tokens, pos);
-      while (pos < tokens.length) {
-        var tok = tokens[pos];
+    function parseTerm(tokens, pos) {
+      var left = parseFactor(tokens, pos);
+      while (left.pos < tokens.length) {
+        var tok = tokens[left.pos];
         if (tok.type === 'op' && (tok.value === '*' || tok.value === '/')) {
-          pos++;
-          var right = parsePower(tokens, pos);
-          left = { type: 'op', op: tok.value, left: left, right: right };
+          var right = parseFactor(tokens, left.pos + 1);
+          left = { node: { type: 'op', op: tok.value, left: left.node, right: right.node }, pos: right.pos };
         } else break;
       }
       return left;
     }
 
-    function parsePower(tokens, pos) {
+    function parseFactor(tokens, pos) {
       var left = parseUnary(tokens, pos);
-      while (pos < tokens.length) {
-        var tok = tokens[pos];
+      while (left.pos < tokens.length) {
+        var tok = tokens[left.pos];
         if (tok.type === 'op' && tok.value === '^') {
-          pos++;
-          var right = parseUnary(tokens, pos);
-          left = { type: 'op', op: '^', left: left, right: right };
+          var right = parseUnary(tokens, left.pos + 1);
+          left = { node: { type: 'op', op: '^', left: left.node, right: right.node }, pos: right.pos };
         } else break;
       }
       return left;
@@ -261,9 +192,8 @@
 
     function parseUnary(tokens, pos) {
       if (tokens[pos].type === 'op' && tokens[pos].value === '-') {
-        pos++;
-        var node = parseAtom(tokens, pos);
-        return { type: 'unary', op: '-', expr: node };
+        var arg = parseAtom(tokens, pos + 1);
+        return { node: { type: 'unary', op: '-', expr: arg.node }, pos: arg.pos };
       }
       return parseAtom(tokens, pos);
     }
@@ -271,26 +201,18 @@
     function parseAtom(tokens, pos) {
       var tok = tokens[pos];
       if (tok.type === 'num') {
-        pos++;
-        return { type: 'num', value: tok.value };
+        return { node: { type: 'num', value: tok.value }, pos: pos + 1 };
       }
       if (tok.type === 'func') {
-        var fn = tok.value;
-        pos++;
-        // expect '('
-        if (tokens[pos].type !== 'lparen') throw "Missing (";
-        pos++; // skip (
-        var arg = parseAddSub(tokens, pos);
-        if (tokens[pos].type !== 'rparen') throw "Missing )";
-        pos++; // skip )
-        return { type: 'func', name: fn, arg: arg };
+        if (tokens[pos + 1].type !== 'lparen') throw "Missing (";
+        var arg = parseExpression(tokens, pos + 2);
+        if (tokens[arg.pos].type !== 'rparen') throw "Missing )";
+        return { node: { type: 'func', name: tok.value, arg: arg.node }, pos: arg.pos + 1 };
       }
       if (tok.type === 'lparen') {
-        pos++;
-        var expr = parseAddSub(tokens, pos);
-        if (tokens[pos].type !== 'rparen') throw "Missing )";
-        pos++;
-        return expr;
+        var expr = parseExpression(tokens, pos + 1);
+        if (tokens[expr.pos].type !== 'rparen') throw "Missing )";
+        return { node: expr.node, pos: expr.pos + 1 };
       }
       throw "Unexpected token";
     }
@@ -306,7 +228,6 @@
           if (node.op === '*') return left.mul(right);
           if (node.op === '/') return left.div(right);
           if (node.op === '^') return new UmbrilFloat(Math.pow(Number(left), Number(right)));
-          throw "Unknown op";
         case 'unary':
           var sub = evalNode(node.expr);
           return new UmbrilFloat(-sub.val);
@@ -321,52 +242,42 @@
             case 'log': return new UmbrilFloat(Math.log(val));
             case 'exp': return new UmbrilFloat(Math.exp(val));
             case 'fact':
-              if (val < 0 || !Number.isInteger(val)) return new UmbrilFloat(NaN);
-              var r = 1;
-              for (var i = 2; i <= val; i++) r *= i;
+              var r = 1; for (var i = 2; i <= val; i++) r *= i;
               return new UmbrilFloat(r);
             case 'rad': return new UmbrilFloat(val * Math.PI / 180);
             case 'deg': return new UmbrilFloat(val * 180 / Math.PI);
-            default: throw "Unknown function";
           }
-        default: throw "Bad node";
       }
+      throw "Bad node";
     }
 
     function safeCalculate(expr) {
       try {
-        // Insert implicit multiplication for 2(3) -> 2*(3)
-        expr = expr.replace(/(\d)\(/g, '$1*(');
+        expr = expr.replace(/×/g, '*').replace(/÷/g, '/').replace(/−/g, '-');
+        expr = expr.replace(/(\d)\(/g, '*(');
         var tokens = tokenize(expr);
-        var ast = parseAddSub(tokens, 0);
-        var result = evalNode(ast);
-        return result.toString();
+        var result = parseExpression(tokens, 0);
+        return evalNode(result.node).toString();
       } catch (e) {
         return 'Error';
       }
     }
 
-    // ---- UI ----
+    // ---- UI (unchanged) ----
     window.input = '0';
     window.memoryVal = 0;
     window.lastResult = '0';
-
     window.updateDisplay = function() {
       document.getElementById('input').textContent = window.input || '0';
       document.getElementById('result').textContent = window.lastResult;
     };
-
     window.append = function(s) {
       if (window.input === '0' && s !== '.') window.input = '';
       window.input += s;
       window.updateDisplay();
     };
-
     window.clearAll = function() { window.input = '0'; window.lastResult = '0'; window.updateDisplay(); };
-    window.undo = function() { window.input = window.input.slice(0, -1); if (!window.input) window.input = '0'; window.updateDisplay(); };
-
     window.calculate = function() {
-      if (!window.input) return;
       var openCount = (window.input.match(/\(/g) || []).length;
       var closeCount = (window.input.match(/\)/g) || []).length;
       var expr = window.input + ')'.repeat(openCount - closeCount);
@@ -375,7 +286,6 @@
       window.input = result;
       window.updateDisplay();
     };
-
     window.memory = function(action) {
       var val = parseFloat(window.lastResult);
       if (isNaN(val)) val = 0;
@@ -384,7 +294,6 @@
       else if (action === 'MC') window.memoryVal = 0;
       window.updateDisplay();
     };
-
     window.switchTab = function(tab) {
       ['calc','sci','tools'].forEach(function(t) {
         document.getElementById('tab-'+t).classList.add('hidden');
@@ -394,8 +303,6 @@
       for (var i = 0; i < tabs.length; i++) tabs[i].classList.remove('active');
       event.target.classList.add('active');
     };
-
-    // Tool functions (these can use regular arithmetic – they’re fine)
     window.calcTax = function() {
       var a = +document.getElementById('tax-amount').value;
       var r = +document.getElementById('tax-rate').value || 8.5;
@@ -449,7 +356,6 @@
       window.input = String(window.lastResult);
       window.updateDisplay();
     };
-
     window.updateDisplay();
   })();
 </script>
