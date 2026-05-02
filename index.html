@@ -35,7 +35,7 @@
     <div class="input" id="input">0</div>
     <div class="result" id="result">0</div>
   </div>
-
+  
   <div class="tabs">
     <div class="tab active" onclick="switchTab('calc')">Calc</div>
     <div class="tab" onclick="switchTab('sci')">Sci</div>
@@ -80,11 +80,9 @@
 
   async function loadPyodide() {
     pyodide = await loadPyodide();
-    // Load core.py from GitHub Pages
     const response = await fetch('./core.py');
     const code = await response.text();
     pyodide.runPython(code);
-    // Now the UmbrilFloat class is available in Python
   }
 
   loadPyodide();
@@ -106,9 +104,7 @@
   async function safeEval(expr) {
     if (!pyodide) return 'Loading...';
     try {
-      // Replace symbols with Python equivalents
       expr = expr.replace(/×/g, '*').replace(/÷/g, '/').replace(/−/g, '-');
-      // Call the real UmbrilFloat engine
       const result = pyodide.runPython(`
 def evaluate(expr):
     import math
