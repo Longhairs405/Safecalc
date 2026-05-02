@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>SafeCalc — Real Engine</title>
+<title>SafeCalc</title>
 <link rel="manifest" href="./manifest.webmanifest">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -57,7 +57,8 @@
   <div id="tab-sci" class="hidden">
     <div class="buttons">
       <button onclick="append('sin(')">sin</button><button onclick="append('cos(')">cos</button><button onclick="append('tan(')">tan</button><button onclick="append('log(')">log</button>
-      <button onclick="append('sqrt(')">√</button><button onclick="append('exp(')">exp</button><button onclick="append('**')">x^y</button><button onclick="append('pi')">π</button><button onclick="append('e')">e</button>
+      <button onclick="append('sqrt(')">√</button><button onclick="append('exp(')">exp</button><button onclick="append('^')">x^y</button><button onclick="append('pi')">π</button>
+      <button onclick="append('e')">e</button>
       <button onclick="append('%')">%</button><button onclick="append('fact(')">fact</button><button onclick="append('rad(')">rad</button><button onclick="append('deg(')">deg</button>
     </div>
   </div>
@@ -72,309 +73,183 @@
 </div>
 
 <script>
-  (function() {
-    // ----  ROCK‑SOLID EXPRESSION EVALUATOR ----
-    var UmbrilFloat = (function() {
-      function UF(val) {
-        this.val = Number(val);
-        if (isNaN(this.val)) throw "Not a number";
-        this.shadow = Math.abs(this.val) * Number.EPSILON;
-      }
-      UF.prototype = {
-        add: function(o) {
-          if (!(o instanceof UF)) o = new UF(o);
-          var r = Object.create(UF.prototype);
-          r.val = this.val + o.val;
-          r.shadow = this.shadow + o.shadow;
-          return r;
-        },
-        sub: function(o) {
-          if (!(o instanceof UF)) o = new UF(o);
-          return this.add(new UF(-o.val));
-        },
-        mul: function(o) {
-          if (!(o instanceof UF)) o = new UF(o);
-          var r = Object.create(UF.prototype);
-          r.val = this.val * o.val;
-          r.shadow = Math.abs(this.val) * o.shadow + Math.abs(o.val) * this.shadow + this.shadow * o.shadow;
-          return r;
-        },
-        div: function(o) {
-          if (!(o instanceof UF)) o = new UF(o);
-          var r = Object.create(UF.prototype);
-          r.val = this.val / o.val;
-          r.shadow = (Math.abs(this.val) * o.shadow) / Math.max(o.val*o.val, 1e-300) + this.shadow / Math.max(Math.abs(o.val), 1e-300);
-          return r;
-        },
-        toString: function() {
-          if (Math.abs(this.val) < 1e-12) return "0";
-          var s = this.val.toPrecision(15);
-          if (s.indexOf('.') !== -1) s = s.replace(/\.?0+$/, '');
-          return s;
-        }
-      };
-      return UF;
-    })();
+(function() {
+  /* ----- UmbrilFloat with shadow damping ----- */
+  function UF(v) {
+    this.val = Number(v);
+    if (isNaN(this.val)) throw "Not a number";
+    this.shadow = Math.abs(this.val) * Number.EPSILON;
+  }
+  UF.prototype = {
+    add: function(o) { if(!(o instanceof UF)) o = new UF(o); var r = Object.create(UF.prototype); r.val = this.val + o.val; r.shadow = this.shadow + o.shadow; return r; },
+    sub: function(o) { if(!(o instanceof UF)) o = new UF(o); return this.add(new UF(-o.val)); },
+    mul: function(o) { if(!(o instanceof UF)) o = new UF(o); var r = Object.create(UF.prototype); r.val = this.val * o.val; r.shadow = Math.abs(this.val) * o.shadow + Math.abs(o.val) * this.shadow + this.shadow * o.shadow; return r; },
+    div: function(o) { if(!(o instanceof UF)) o = new UF(o); var r = Object.create(UF.prototype); r.val = this.val / o.val; r.shadow = (Math.abs(this.val)*o.shadow)/Math.max(o.val*o.val,1e-300) + this.shadow/Math.max(Math.abs(o.val),1e-300); return r; },
+    pow: function(o) { if(!(o instanceof UF)) o = new UF(o); return new UF(Math.pow(this.val, o.val)); },
+    toString: function() { if (Math.abs(this.val) < 1e-12) return "0"; var s = this.val.toPrecision(15); if (s.indexOf('.')!==-1) s = s.replace(/\.?0+$/,''); return s; }
+  };
 
-    // --- Tokenizer ---
-    function tokenize(expr) {
-      var tokens = [];
-      var i = 0;
-      while (i < expr.length) {
-        var ch = expr[i];
-        if (ch === ' ') { i++; continue; }
-        if ((ch >= '0' && ch <= '9') || ch === '.') {
-          var num = '';
-          while (i < expr.length && ((expr[i] >= '0' && expr[i] <= '9') || expr[i] === '.')) {
-            num += expr[i++];
-          }
-          tokens.push({type: 'num', value: parseFloat(num)});
-          continue;
+  /* ----- Shunting-yard evaluator ----- */
+  var OP = { '+':[1,'L'], '-':[1,'L'], '*':[2,'L'], '/':[2,'L'], '^':[3,'R'] };
+  var FN = ['sqrt','sin','cos','tan','log','exp','fact','rad','deg'];
+
+  function tokenize(s) {
+    s = s.replace(/×/g,'*').replace(/÷/g,'/').replace(/−/g,'-').replace(/\*\*/g,'^');
+    s = s.replace(/(\d)\(/g,'$1*(');   // implicit multiplication
+    var tokens = [], i = 0;
+    while (i < s.length) {
+      var ch = s[i];
+      if (ch === ' ') { i++; continue; }
+      if ((ch>='0' && ch<='9') || ch==='.') {
+        var num = '';
+        while (i < s.length && ((s[i]>='0' && s[i]<='9') || s[i]==='.')) num += s[i++];
+        tokens.push({t:'num', v:parseFloat(num)});
+        continue;
+      }
+      if (ch === '(') { tokens.push({t:'lpar'}); i++; continue; }
+      if (ch === ')') { tokens.push({t:'rpar'}); i++; continue; }
+      if (ch in OP) { tokens.push({t:'op', v:ch}); i++; continue; }
+      if (s.substr(i, 2) === 'pi') { tokens.push({t:'num', v:Math.PI}); i+=2; continue; }
+      if (s[i] === 'e' && (i+1>=s.length || s[i+1]<'a'||s[i+1]>'z')) { tokens.push({t:'num', v:Math.E}); i++; continue; }
+      var found = false;
+      for (var j = 0; j < FN.length; j++) {
+        var f = FN[j];
+        if (s.substr(i, f.length) === f) {
+          tokens.push({t:'fn', v:f}); i+=f.length; found = true; break;
         }
-        if (ch === '(') { tokens.push({type: 'lparen'}); i++; continue; }
-        if (ch === ')') { tokens.push({type: 'rparen'}); i++; continue; }
-        if (ch === '+' || ch === '-' || ch === '*' || ch === '/' || ch === '^') {
-          tokens.push({type: 'op', value: ch}); i++; continue;
+      }
+      if (found) continue;
+      i++; // ignore unknown
+    }
+    // insert implicit multiplication: number before '(' or function
+    for (var k = 0; k < tokens.length-1; k++) {
+      if ((tokens[k].t === 'num' || tokens[k].t === 'rpar') &&
+          (tokens[k+1].t === 'num' || tokens[k+1].t === 'lpar' || tokens[k+1].t === 'fn')) {
+        tokens.splice(k+1, 0, {t:'op', v:'*'});
+      }
+    }
+    return tokens;
+  }
+
+  function toRPN(tokens) {
+    var out = [], stack = [];
+    for (var i = 0; i < tokens.length; i++) {
+      var tok = tokens[i];
+      if (tok.t === 'num') {
+        out.push(tok);
+      } else if (tok.t === 'fn') {
+        stack.push(tok);
+      } else if (tok.t === 'op') {
+        while (stack.length && stack[stack.length-1].t === 'op' &&
+               ((OP[tok.v][1]==='L' && OP[stack[stack.length-1].v][0] >= OP[tok.v][0]) ||
+                (OP[tok.v][1]==='R' && OP[stack[stack.length-1].v][0] >  OP[tok.v][0]))) {
+          out.push(stack.pop());
         }
-        // Names: functions, constants
-        var names = ['sqrt','sin','cos','tan','log','exp','fact','rad','deg','pi','e'];
-        var found = false;
-        for (var f = 0; f < names.length; f++) {
-          var fn = names[f];
-          if (expr.substr(i, fn.length) === fn) {
-            if (fn === 'pi') tokens.push({type: 'num', value: Math.PI});
-            else if (fn === 'e') tokens.push({type: 'num', value: Math.E});
-            else tokens.push({type: 'func', value: fn});
-            i += fn.length;
-            found = true;
+        stack.push(tok);
+      } else if (tok.t === 'lpar') {
+        stack.push(tok);
+      } else if (tok.t === 'rpar') {
+        while (stack.length && stack[stack.length-1].t !== 'lpar') out.push(stack.pop());
+        if (stack.length && stack[stack.length-1].t === 'lpar') stack.pop(); // remove '('
+        if (stack.length && stack[stack.length-1].t === 'fn') out.push(stack.pop()); // function
+      }
+    }
+    while (stack.length) out.push(stack.pop());
+    return out;
+  }
+
+  function evalRPN(rpn) {
+    var stack = [];
+    for (var i = 0; i < rpn.length; i++) {
+      var tok = rpn[i];
+      if (tok.t === 'num') {
+        stack.push(new UF(tok.v));
+      } else if (tok.t === 'op') {
+        var b = stack.pop(), a = stack.pop();
+        if (tok.v === '+') stack.push(a.add(b));
+        else if (tok.v === '-') stack.push(a.sub(b));
+        else if (tok.v === '*') stack.push(a.mul(b));
+        else if (tok.v === '/') stack.push(a.div(b));
+        else if (tok.v === '^') stack.push(a.pow(b));
+      } else if (tok.t === 'fn') {
+        var arg = stack.pop();
+        var v = arg.val;
+        switch (tok.v) {
+          case 'sqrt': stack.push(new UF(Math.sqrt(v))); break;
+          case 'sin':  stack.push(new UF(Math.sin(v))); break;
+          case 'cos':  stack.push(new UF(Math.cos(v))); break;
+          case 'tan':  stack.push(new UF(Math.tan(v))); break;
+          case 'log':  stack.push(new UF(Math.log(v))); break;
+          case 'exp':  stack.push(new UF(Math.exp(v))); break;
+          case 'fact':
+            if (v<0 || !Number.isInteger(v)) stack.push(new UF(NaN));
+            else { var r=1; for (var j=2;j<=v;j++) r*=j; stack.push(new UF(r)); }
             break;
-          }
-        }
-        if (found) continue;
-        i++; // skip unknown char
-      }
-      return tokens;
-    }
-
-    // --- Recursive‑descent parser with correct precedence ---
-    function parseAddSub(tokens, pos) {
-      var left = parseMulDiv(tokens, pos);
-      while (left.pos < tokens.length) {
-        var tok = tokens[left.pos];
-        if (tok.type === 'op' && (tok.value === '+' || tok.value === '-')) {
-          pos = left.pos + 1;
-          var right = parseMulDiv(tokens, pos);
-          left = { node: {type:'op', op:tok.value, left:left.node, right:right.node}, pos: right.pos };
-        } else break;
-      }
-      return left;
-    }
-
-    function parseMulDiv(tokens, pos) {
-      var left = parsePower(tokens, pos);
-      while (left.pos < tokens.length) {
-        var tok = tokens[left.pos];
-        if (tok.type === 'op' && (tok.value === '*' || tok.value === '/')) {
-          pos = left.pos + 1;
-          var right = parsePower(tokens, pos);
-          left = { node: {type:'op', op:tok.value, left:left.node, right:right.node}, pos: right.pos };
-        } else break;
-      }
-      return left;
-    }
-
-    function parsePower(tokens, pos) {
-      var left = parseUnary(tokens, pos);
-      while (left.pos < tokens.length) {
-        var tok = tokens[left.pos];
-        if (tok.type === 'op' && tok.value === '^') {
-          pos = left.pos + 1;
-          var right = parseUnary(tokens, pos);  // right‑associative
-          left = { node: {type:'op', op:'^', left:left.node, right:right.node}, pos: right.pos };
-        } else break;
-      }
-      return left;
-    }
-
-    function parseUnary(tokens, pos) {
-      if (tokens[pos].type === 'op' && (tokens[pos].value === '-' || tokens[pos].value === '+')) {
-        var arg = parseAtom(tokens, pos + 1);
-        if (tokens[pos].value === '-') {
-          return { node: {type:'unary', op:'-', expr: arg.node}, pos: arg.pos };
-        } else {
-          return arg;  // unary + is a no‑op
+          case 'rad': stack.push(new UF(v * Math.PI/180)); break;
+          case 'deg': stack.push(new UF(v * 180/Math.PI)); break;
         }
       }
-      return parseAtom(tokens, pos);
     }
+    return stack[0].toString();
+  }
 
-    function parseAtom(tokens, pos) {
-      var tok = tokens[pos];
-      if (tok.type === 'num') {
-        return { node: {type:'num', value: tok.value}, pos: pos + 1 };
-      }
-      if (tok.type === 'func') {
-        if (pos+1 >= tokens.length || tokens[pos+1].type !== 'lparen') throw "Missing (";
-        var arg = parseAddSub(tokens, pos + 2);
-        if (tokens[arg.pos].type !== 'rparen') throw "Missing )";
-        return { node: {type:'func', name: tok.value, arg: arg.node}, pos: arg.pos + 1 };
-      }
-      if (tok.type === 'lparen') {
-        var inner = parseAddSub(tokens, pos + 1);
-        if (tokens[inner.pos].type !== 'rparen') throw "Missing )";
-        return { node: inner.node, pos: inner.pos + 1 };
-      }
-      throw "Unexpected token";
-    }
+  function safeEval(expr) {
+    try {
+      var tokens = tokenize(expr);
+      var rpn = toRPN(tokens);
+      return evalRPN(rpn);
+    } catch(e) { return 'Error'; }
+  }
 
-    function evalNode(node) {
-      switch (node.type) {
-        case 'num': return new UmbrilFloat(node.value);
-        case 'op':
-          var left = evalNode(node.left);
-          var right = evalNode(node.right);
-          if (node.op === '+') return left.add(right);
-          if (node.op === '-') return left.sub(right);
-          if (node.op === '*') return left.mul(right);
-          if (node.op === '/') return left.div(right);
-          if (node.op === '^') return new UmbrilFloat(Math.pow(Number(left), Number(right)));
-          throw "Unknown op";
-        case 'unary':
-          var sub = evalNode(node.expr);
-          return new UmbrilFloat(-sub.val);
-        case 'func':
-          var arg = evalNode(node.arg);
-          var val = Number(arg);
-          switch (node.name) {
-            case 'sqrt': return new UmbrilFloat(Math.sqrt(val));
-            case 'sin':  return new UmbrilFloat(Math.sin(val));
-            case 'cos':  return new UmbrilFloat(Math.cos(val));
-            case 'tan':  return new UmbrilFloat(Math.tan(val));
-            case 'log':  return new UmbrilFloat(Math.log(val));
-            case 'exp':  return new UmbrilFloat(Math.exp(val));
-            case 'fact':
-              if (val < 0 || !Number.isInteger(val)) return new UmbrilFloat(NaN);
-              var r = 1; for (var i = 2; i <= val; i++) r *= i;
-              return new UmbrilFloat(r);
-            case 'rad': return new UmbrilFloat(val * Math.PI / 180);
-            case 'deg': return new UmbrilFloat(val * 180 / Math.PI);
-            default: throw "Unknown function";
-          }
-        default: throw "Bad node";
-      }
-    }
+  /* ----- UI ----- */
+  window.input = '0';
+  window.lastResult = '0';
+  window.memoryVal = 0;
 
-    function safeCalculate(expr) {
-      try {
-        // Replace symbols and fix x^y button
-        expr = expr.replace(/×/g, '*').replace(/÷/g, '/').replace(/−/g, '-');
-        expr = expr.replace(/\*\*/g, '^');  // x^y button fix
-        expr = expr.replace(/(\d)\(/g, '$1*(');  // implicit multiplication like 2(3)
-        var tokens = tokenize(expr);
-        var ast = parseAddSub(tokens, 0);
-        return evalNode(ast.node).toString();
-      } catch (e) {
-        return 'Error';
-      }
-    }
-
-    // ---- UI (unchanged) ----
-    window.input = '0';
-    window.memoryVal = 0;
-    window.lastResult = '0';
-    window.updateDisplay = function() {
-      document.getElementById('input').textContent = window.input || '0';
-      document.getElementById('result').textContent = window.lastResult;
-    };
-    window.append = function(s) {
-      if (window.input === '0' && s !== '.') window.input = '';
-      window.input += s;
-      window.updateDisplay();
-    };
-    window.clearAll = function() { window.input = '0'; window.lastResult = '0'; window.updateDisplay(); };
-    window.undo = function() { window.input = window.input.slice(0, -1); if (!window.input) window.input = '0'; window.updateDisplay(); };
-    window.calculate = function() {
-      if (!window.input) return;
-      var openCount = (window.input.match(/\(/g) || []).length;
-      var closeCount = (window.input.match(/\)/g) || []).length;
-      var expr = window.input + ')'.repeat(openCount - closeCount);
-      var result = safeCalculate(expr);
-      window.lastResult = result;
-      window.input = result;
-      window.updateDisplay();
-    };
-    window.memory = function(action) {
-      var val = parseFloat(window.lastResult);
-      if (isNaN(val)) val = 0;
-      if (action === 'M+') window.memoryVal += val;
-      else if (action === 'MR') { window.input = String(window.memoryVal); window.lastResult = window.input; }
-      else if (action === 'MC') window.memoryVal = 0;
-      window.updateDisplay();
-    };
-    window.switchTab = function(tab) {
-      ['calc','sci','tools'].forEach(function(t) {
-        document.getElementById('tab-'+t).classList.add('hidden');
-      });
-      document.getElementById('tab-'+tab).classList.remove('hidden');
-      var tabs = document.querySelectorAll('.tab');
-      for (var i = 0; i < tabs.length; i++) tabs[i].classList.remove('active');
-      event.target.classList.add('active');
-    };
-    window.calcTax = function() {
-      var a = +document.getElementById('tax-amount').value;
-      var r = +document.getElementById('tax-rate').value || 8.5;
-      var total = a * (1 + r/100);
-      window.lastResult = total.toFixed(2);
-      window.input = String(window.lastResult);
-      window.updateDisplay();
-    };
-    window.calcTip = function() {
-      var a = +document.getElementById('tip-amount').value;
-      var r = +document.getElementById('tip-rate').value || 18;
-      var total = a * (1 + r/100);
-      window.lastResult = total.toFixed(2);
-      window.input = String(window.lastResult);
-      window.updateDisplay();
-    };
-    window.convertLength = function() {
-      var v = +document.getElementById('len-val').value;
-      var from = document.getElementById('len-from').value;
-      var to = document.getElementById('len-to').value;
-      var toM = { mi: 1609.344, km: 1000, ft: 0.3048, m: 1 };
-      var fromM = { mi: 1/1609.344, km: 1/1000, ft: 1/0.3048, m: 1 };
-      var meters = v * toM[from];
-      var result = meters * fromM[to];
-      window.lastResult = result.toFixed(4);
-      window.input = String(window.lastResult);
-      window.updateDisplay();
-    };
-    window.convertTemp = function() {
-      var v = +document.getElementById('temp-val').value;
-      var from = document.getElementById('temp-from').value;
-      var to = document.getElementById('temp-to').value;
-      var celsius;
-      if (from === 'C') celsius = v;
-      else if (from === 'F') celsius = (v - 32) * 5/9;
-      else celsius = v - 273.15;
-      var result;
-      if (to === 'C') result = celsius;
-      else if (to === 'F') result = celsius * 9/5 + 32;
-      else result = celsius + 273.15;
-      window.lastResult = result.toFixed(2);
-      window.input = String(window.lastResult);
-      window.updateDisplay();
-    };
-    window.compound = function() {
-      var P = +document.getElementById('comp-principal').value;
-      var r = (+document.getElementById('comp-rate').value || 5) / 100;
-      var t = +document.getElementById('comp-years').value || 1;
-      var A = P * Math.pow(1 + r, t);
-      window.lastResult = A.toFixed(2);
-      window.input = String(window.lastResult);
-      window.updateDisplay();
-    };
+  window.updateDisplay = function() {
+    document.getElementById('input').textContent = window.input || '0';
+    document.getElementById('result').textContent = window.lastResult;
+  };
+  window.append = function(s) {
+    if (window.input === '0' && s !== '.') window.input = '';
+    window.input += s;
     window.updateDisplay();
-  })();
+  };
+  window.undo = function() { window.input = window.input.slice(0,-1); if (!window.input) window.input='0'; window.updateDisplay(); };
+  window.clearAll = function() { window.input='0'; window.lastResult='0'; window.updateDisplay(); };
+  window.calculate = function() {
+    if (!window.input) return;
+    var open = (window.input.match(/\(/g) || []).length;
+    var close = (window.input.match(/\)/g) || []).length;
+    var expr = window.input + ')'.repeat(open - close);
+    var res = safeEval(expr);
+    window.lastResult = res;
+    window.input = res;
+    window.updateDisplay();
+  };
+  window.memory = function(a) {
+    var v = parseFloat(window.lastResult);
+    if (isNaN(v)) v = 0;
+    if (a === 'M+') window.memoryVal += v;
+    else if (a === 'MR') { window.input = String(window.memoryVal); window.lastResult = window.input; }
+    else if (a === 'MC') window.memoryVal = 0;
+    window.updateDisplay();
+  };
+  window.switchTab = function(t) {
+    ['calc','sci','tools'].forEach(function(x){ document.getElementById('tab-'+x).classList.add('hidden'); });
+    document.getElementById('tab-'+t).classList.remove('hidden');
+    var tabs = document.querySelectorAll('.tab');
+    for (var i=0; i<tabs.length; i++) tabs[i].classList.remove('active');
+    event.target.classList.add('active');
+  };
+  /* tools remain unchanged */
+  window.calcTax = function(){ var a=+document.getElementById('tax-amount').value; var r=+document.getElementById('tax-rate').value||8.5; window.lastResult=(a*(1+r/100)).toFixed(2); window.input=window.lastResult; window.updateDisplay(); };
+  window.calcTip = function(){ var a=+document.getElementById('tip-amount').value; var r=+document.getElementById('tip-rate').value||18; window.lastResult=(a*(1+r/100)).toFixed(2); window.input=window.lastResult; window.updateDisplay(); };
+  window.convertLength = function(){ var v=+document.getElementById('len-val').value; var from=document.getElementById('len-from').value; var to=document.getElementById('len-to').value; var toM={mi:1609.344,km:1000,ft:0.3048,m:1},fromM={mi:1/1609.344,km:1/1000,ft:1/0.3048,m:1}; var m=v*toM[from]; window.lastResult=(m*fromM[to]).toFixed(4); window.input=window.lastResult; window.updateDisplay(); };
+  window.convertTemp = function(){ var v=+document.getElementById('temp-val').value; var from=document.getElementById('temp-from').value; var to=document.getElementById('temp-to').value; var c; if(from==='C') c=v; else if(from==='F') c=(v-32)*5/9; else c=v-273.15; var r; if(to==='C') r=c; else if(to==='F') r=c*9/5+32; else r=c+273.15; window.lastResult=r.toFixed(2); window.input=window.lastResult; window.updateDisplay(); };
+  window.compound = function(){ var P=+document.getElementById('comp-principal').value; var r=(+document.getElementById('comp-rate').value||5)/100; var t=+document.getElementById('comp-years').value||1; window.lastResult=(P*Math.pow(1+r,t)).toFixed(2); window.input=window.lastResult; window.updateDisplay(); };
+  window.updateDisplay();
+})();
 </script>
 </body>
 </html>
