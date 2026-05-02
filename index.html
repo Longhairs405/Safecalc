@@ -3,13 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>SafeCalc</title>
+<title>SafeCalc — Real Engine</title>
 <link rel="manifest" href="./manifest.webmanifest">
-<script>
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js');
-  }
-</script>
+<script src="https://cdn.jsdelivr.net/pyodide/v0.27.4/full/pyodide.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: #0a0a14; font-family: 'Roboto', sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; }
@@ -39,7 +35,7 @@
     <div class="input" id="input">0</div>
     <div class="result" id="result">0</div>
   </div>
-  
+
   <div class="tabs">
     <div class="tab active" onclick="switchTab('calc')">Calc</div>
     <div class="tab" onclick="switchTab('sci')">Sci</div>
@@ -77,10 +73,21 @@
 </div>
 
 <script>
-  const EPS = 2.220446049250313e-16;
+  let pyodide = null;
   let input = '0';
   let memoryVal = 0;
   let lastResult = '0';
+
+  async function loadPyodide() {
+    pyodide = await loadPyodide();
+    // Load core.py from GitHub Pages
+    const response = await fetch('./core.py');
+    const code = await response.text();
+    pyodide.runPython(code);
+    // Now the UmbrilFloat class is available in Python
+  }
+
+  loadPyodide();
 
   function updateDisplay() {
     document.getElementById('input').textContent = input || '0';
@@ -96,16 +103,35 @@
   function clearAll() { input = '0'; lastResult = '0'; updateDisplay(); }
   function undo() { input = input.slice(0, -1); if (!input) input = '0'; updateDisplay(); }
 
-  function safeEval(expr) {
-    expr = expr.replace(/×/g, '*').replace(/÷/g, '/').replace(/−/g, '-');
-    expr = expr.replace(/pi/g, Math.PI);
-    expr = expr.replace(/fact\(([^)]+)\)/g, (_, n) => factorial(+n));
-    expr = expr.replace(/rad\(([^)]+)\)/g, (_, n) => +n * Math.PI / 180);
-    expr = expr.replace(/deg\(([^)]+)\)/g, (_, n) => +n * 180 / Math.PI);
+  async function safeEval(expr) {
+    if (!pyodide) return 'Loading...';
     try {
-      let result = eval(expr);
+      // Replace symbols with Python equivalents
+      expr = expr.replace(/×/g, '*').replace(/÷/g, '/').replace(/−/g, '-');
+      // Call the real UmbrilFloat engine
+      const result = pyodide.runPython(`
+def evaluate(expr):
+    import math
+    from core import UmbrilFloat
+    try:
+        val = eval(expr, {"__builtins__": {}}, {
+            "UmbrilFloat": UmbrilFloat,
+            "pi": math.pi, "e": math.e,
+            "sqrt": lambda x: UmbrilFloat(math.sqrt(float(UmbrilFloat(x)))),
+            "sin": lambda x: UmbrilFloat(math.sin(float(UmbrilFloat(x)))),
+            "cos": lambda x: UmbrilFloat(math.cos(float(UmbrilFloat(x)))),
+            "tan": lambda x: UmbrilFloat(math.tan(float(UmbrilFloat(x)))),
+            "log": lambda x: UmbrilFloat(math.log(float(UmbrilFloat(x)))),
+            "exp": lambda x: UmbrilFloat(math.exp(float(UmbrilFloat(x)))),
+            "factorial": lambda n: UmbrilFloat(math.factorial(int(n)) if float(n).is_integer() and n >= 0 else float('nan'))
+        })
+        return float(val)
+    except Exception as e:
+        return str(e)
+evaluate(''' + expr + ''')
+      `);
       if (typeof result === 'number') {
-        if (Math.abs(result) < EPS * 100) result = 0;
+        if (Math.abs(result) < 1e-12) result = 0;
         let s = result.toPrecision(15);
         if (s.includes('.')) s = s.replace(/\.?0+$/, '');
         return s;
@@ -114,26 +140,19 @@
     } catch(e) { return 'Error'; }
   }
 
-  function factorial(n) {
-    if (n < 0) return NaN;
-    let r = 1;
-    for (let i = 2; i <= n; i++) r *= i;
-    return r;
-  }
-
-  function calculate() {
+  async function calculate() {
     if (!input) return;
     let openCount = (input.match(/\(/g) || []).length;
     let closeCount = (input.match(/\)/g) || []).length;
     let expr = input + ')'.repeat(openCount - closeCount);
-    let result = safeEval(expr);
+    let result = await safeEval(expr);
     lastResult = result;
     input = result;
     updateDisplay();
   }
 
   function memory(action) {
-    let val = parseFloat(safeEval(input || '0'));
+    let val = parseFloat(lastResult);
     if (isNaN(val)) val = 0;
     if (action === 'M+') memoryVal += val;
     else if (action === 'MR') { input = String(memoryVal); lastResult = input; }
